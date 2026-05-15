@@ -9,57 +9,146 @@ import '../styles/main.css';
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
-    <title>Astro</title>
+    <title>D3 Globe</title>
   </head>
 
   <body>
-    <main class="grid place-content-center min-h-[100dvh] bg-gray-900">
-      <h1 class="text-4xl font-black text-amber-200">D3 Data Visuals</h1>
-			<div data-container class="mt-4 fill-current text-amber-200"></div>
+    <main class="grid place-content-center min-h-[100dvh] bg-[#101010]">
+      <h1 class="sr-only">Versor Dragging</h1>
+      <div data-container></div>
     </main>
   </body>
 </html>
 
 <script type="module">
   import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+  import * as topojson from 'https://esm.sh/topojson-client@3';
 
-	const container = document.querySelector('[data-container]');
+  // ── Inline versor math ────────────────────────────────────────────────────
+  // https://github.com/Fil/versor (ISC)
+  const _r = Math.PI / 180, _d = 180 / Math.PI;
 
-  // Declare the chart dimensions and margins.
-  const width = 640;
-  const height = 400;
-  const marginTop = 20;
-  const marginRight = 20;
-  const marginBottom = 30;
-  const marginLeft = 40;
+  function versor([l, p, g]) {
+    l = l * _r / 2; p = p * _r / 2; g = (g || 0) * _r / 2;
+    const sl = Math.sin(l), cl = Math.cos(l);
+    const sp = Math.sin(p), cp = Math.cos(p);
+    const sg = Math.sin(g), cg = Math.cos(g);
+    return [cl*cp*cg + sl*sp*sg, sl*cp*cg - cl*sp*sg, cl*sp*cg + sl*cp*sg, cl*cp*sg - sl*sp*cg];
+  }
+  versor.cartesian = ([l, p]) => {
+    const a = l * _r, b = p * _r, cb = Math.cos(b);
+    return [cb * Math.cos(a), cb * Math.sin(a), Math.sin(b)];
+  };
+  versor.multiply = ([a1, b1, c1, d1], [a2, b2, c2, d2]) => [
+    a1*a2 - b1*b2 - c1*c2 - d1*d2,
+    a1*b2 + b1*a2 + c1*d2 - d1*c2,
+    a1*c2 - b1*d2 + c1*a2 + d1*b2,
+    a1*d2 + b1*c2 - c1*b2 + d1*a2,
+  ];
+  versor.rotation = ([a, b, c, d]) => [
+    Math.atan2(2*(a*b + c*d), 1 - 2*(b*b + c*c)) * _d,
+    Math.asin(Math.max(-1, Math.min(1, 2*(a*c - d*b)))) * _d,
+    Math.atan2(2*(a*d + b*c), 1 - 2*(c*c + d*d)) * _d,
+  ];
+  versor.delta = (v0, v1) => {
+    const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+    const dot   = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    const w = cross(v0, v1), l = Math.sqrt(dot(w, w));
+    if (!l) return [1, 0, 0, 0];
+    const t = Math.acos(Math.max(-1, Math.min(1, dot(v0, v1)))) / 2, s = Math.sin(t);
+    return [Math.cos(t), w[2]/l*s, -w[1]/l*s, w[0]/l*s];
+  };
 
-  // Declare the x (horizontal position) scale.
-  const x = d3
-    .scaleUtc()
-    .domain([new Date('2023-01-01'), new Date('2024-01-01')])
-    .range([marginLeft, width - marginRight]);
+  // ── Land data from world-atlas CDN ────────────────────────────────────────
+  const [world50, world110] = await Promise.all([
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json').then(r => r.json()),
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json').then(r => r.json()),
+  ]);
+  const land50  = topojson.feature(world50,  world50.objects.land);
+  const land110 = topojson.feature(world110, world110.objects.land);
 
-  // Declare the y (vertical position) scale.
-  const y = d3
-    .scaleLinear()
-    .domain([0, 100])
-    .range([height - marginBottom, marginTop]);
+  // ── Projection ────────────────────────────────────────────────────────────
+  const width = 560;
+  const sphere = { type: 'Sphere' };
+  const projection = d3.geoOrthographic().fitWidth(width, sphere);
+  const [[x0, y0], [x1, y1]] = d3.geoPath(projection.fitWidth(width, sphere)).bounds(sphere);
+  const dy = Math.ceil(y1 - y0), len = Math.min(Math.ceil(x1 - x0), dy);
+  projection.scale(projection.scale() * (len - 1) / len).precision(0.2);
+  const height = dy;
 
-  // Create the SVG container.
-  const svg = d3.create('svg').attr('width', width).attr('height', height);
+  // ── Canvas (HiDPI-aware) ──────────────────────────────────────────────────
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = Object.assign(document.createElement('canvas'), {
+    width:  width  * dpr,
+    height: height * dpr,
+  });
+  canvas.style.cssText = `width:${width}px;height:${height}px;cursor:grab;border-radius:50%;display:block`;
+  const context = canvas.getContext('2d');
+  context.scale(dpr, dpr);
+  const path = d3.geoPath(projection, context);
 
-  // Add the x-axis.
-  svg
-    .append('g')
-    .attr('transform', `translate(0,${height - marginBottom})`)
-    .call(d3.axisBottom(x));
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render(land) {
+    context.clearRect(0, 0, width, height);
+    context.beginPath(); path(sphere); context.fillStyle   = '#002038';  context.fill();
+    context.beginPath(); path(land);   context.fillStyle   = '#918779';  context.fill();
+    context.beginPath(); path(sphere); context.strokeStyle = '#002038';  context.lineWidth = 1.5; context.stroke();
+  }
 
-  // Add the y-axis.
-  svg
-    .append('g')
-    .attr('transform', `translate(${marginLeft},0)`)
-    .call(d3.axisLeft(y));
+  // ── Drag interaction ──────────────────────────────────────────────────────
+  function makeDrag(proj) {
+    let v0, q0, r0, a0, l;
 
-  // Append the SVG element.
-  container.append(svg.node());
+    function pointer(event, that) {
+      const t = d3.pointers(event, that);
+      if (t.length !== l) {
+        l = t.length;
+        if (l > 1) a0 = Math.atan2(t[1][1] - t[0][1], t[1][0] - t[0][0]);
+        dragstarted.apply(that, [event, that]);
+      }
+      if (l > 1) {
+        const px = d3.mean(t, p => p[0]), py = d3.mean(t, p => p[1]);
+        return [px, py, Math.atan2(t[1][1] - t[0][1], t[1][0] - t[0][0])];
+      }
+      return t[0];
+    }
+
+    function dragstarted({ x, y }) {
+      v0 = versor.cartesian(proj.invert([x, y]));
+      q0 = versor(r0 = proj.rotate());
+    }
+
+    function dragged(event) {
+      const p = pointer(event, this);
+      const v1 = versor.cartesian(proj.rotate(r0).invert(p));
+      const delta = versor.delta(v0, v1);
+      let q1 = versor.multiply(q0, delta);
+      if (p[2]) {
+        const d = (p[2] - a0) / 2;
+        const s = -Math.sin(d), c = Math.sign(Math.cos(d));
+        q1 = versor.multiply([Math.sqrt(1 - s * s), 0, 0, s * c], q1);
+      }
+      proj.rotate(versor.rotation(q1));
+    }
+
+    return d3.drag()
+      .on('start', function(event) {
+        pointer(event, this);
+        canvas.style.cursor = 'grabbing';
+      })
+      .on('drag', dragged)
+      .on('end', function() {
+        l = 0;
+        canvas.style.cursor = 'grab';
+      });
+  }
+
+  // ── Mount ─────────────────────────────────────────────────────────────────
+  document.querySelector('[data-container]').append(canvas);
+
+  d3.select(canvas)
+    .call(makeDrag(projection)
+      .on('drag.render', () => render(land110))
+      .on('end.render',  () => render(land50)))
+    .call(() => render(land50));
 </script>
