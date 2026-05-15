@@ -18,7 +18,7 @@ import '../styles/main.css';
       <div data-container></div>
       <div
         data-tooltip
-        class="pointer-events-none fixed hidden rounded-md bg-gray-900 px-2 pt-1 pb-[5px] text-xs text-white shadow-xl ring-1 ring-white/10"
+        class="pointer-events-none fixed hidden rounded-sm bg-gray-900/80 backdrop-blur-md px-2 pt-1 pb-[5px] text-xs text-white shadow-xl ring-1 ring-white/6"
       >
       </div>
     </main>
@@ -84,7 +84,7 @@ import '../styles/main.css';
   };
 
   // ── Country data from world-atlas CDN ─────────────────────────────────────
-  const [world50, world110, wbRaw, rcRaw] = await Promise.all([
+  const [world50, world110, wbRaw, rcRaw, medianAgeCsv] = await Promise.all([
     fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then(
       (r) => r.json(),
     ),
@@ -94,9 +94,12 @@ import '../styles/main.css';
     fetch(
       'https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=300&mrv=1',
     ).then((r) => r.json()),
-    fetch('https://restcountries.com/v3.1/all?fields=ccn3,cca3,name,population').then(
-      (r) => r.json(),
-    ),
+    fetch(
+      'https://restcountries.com/v3.1/all?fields=ccn3,cca3,name,population',
+    ).then((r) => r.json()),
+    fetch(
+      'https://ourworldindata.org/grapher/median-age.csv?v=1&csvType=full&useColumnShortNames=true',
+    ).then((r) => r.text()),
   ]);
   const countries50 = topojson.feature(
     world50,
@@ -140,27 +143,59 @@ import '../styles/main.css';
     }
   }
 
+  // Median age: most recent observation per country, keyed by numeric ISO
+  const medianAgeByNumeric = new Map();
+  {
+    const rows = d3.csvParse(medianAgeCsv);
+    const valueCols = rows.columns.filter(
+      (c) => c !== 'entity' && c !== 'code' && c !== 'year',
+    );
+    const latestByCode = new Map();
+    for (const row of rows) {
+      const code = row.code;
+      const year = +row.year;
+      if (!code || !Number.isFinite(year)) continue;
+      let value = NaN;
+      for (const col of valueCols) {
+        const v = +row[col];
+        if (Number.isFinite(v) && row[col] !== '') {
+          value = v;
+          break;
+        }
+      }
+      if (!Number.isFinite(value)) continue;
+      const prev = latestByCode.get(code);
+      if (!prev || year > prev.year) latestByCode.set(code, { year, value });
+    }
+    for (const [code, { value }] of latestByCode) {
+      const id = alpha3ToNumeric.get(code);
+      if (id && id !== '000') medianAgeByNumeric.set(id, value);
+    }
+  }
+
   // Palette light-mint → dark-navy (low GDP per capita → high)
   const gdpValues = [...gdpByNumeric.values()].sort(d3.ascending);
 
-	const WATER_COLOR = '#0C1B2A';
-	
+  const WATER_COLOR = '#0C1B2A';
+
   const color = d3
     .scaleQuantile()
     .domain(gdpValues)
-    .range([
-      '#ABCCC6',
-      '#98D1C8',
-      '#6EBFB4',
-      '#46AB9E',
-      '#28938A',
-      '#0D6170',
-      '#05455B',
-      '#0F3C57',
-      '#163450',
-      '#192A45',
-      '#1B2439',
-    ]);
+    .range(
+      [
+        '#ABCCC6',
+        '#98D1C8',
+        '#6EBFB4',
+        '#46AB9E',
+        '#28938A',
+        '#0D6170',
+        '#05455B',
+        '#0F3C57',
+        '#163450',
+        '#192A45',
+        '#1B2439',
+      ].reverse(),
+    );
   const noDataColor = '#666';
 
   // ── Projection ────────────────────────────────────────────────────────────
@@ -216,7 +251,7 @@ import '../styles/main.css';
 
     context.beginPath();
     path(borders);
-    context.strokeStyle = 'rgba(0,0,0,0.2)';
+    context.strokeStyle = 'rgba(0,0,0,0.7)';
     context.lineWidth = 0.5;
     context.stroke();
 
@@ -287,6 +322,7 @@ import '../styles/main.css';
   const tooltip = document.querySelector('[data-tooltip]');
   const gdpFmt = d3.format(',.0f');
   const popFmt = d3.format(',.1f');
+  const ageFmt = d3.format('.1f');
 
   canvas.addEventListener('mousemove', (event) => {
     if (isDragging) {
@@ -318,22 +354,34 @@ import '../styles/main.css';
     }
 
     const nameEl = Object.assign(document.createElement('span'), {
-      className: 'block font-semibold',
+      className: 'block font-semibold mb-1',
     });
+
     nameEl.textContent = nameByNumeric.get(found.id) ?? found.id;
     const gdp = gdpByNumeric.get(found.id);
     const gdpEl = Object.assign(document.createElement('span'), {
-      className: 'block opacity-70',
+      className: 'block text-[10px] opacity-70',
     });
+
     gdpEl.textContent =
       gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data';
     const pop = popByNumeric.get(found.id);
     const popEl = Object.assign(document.createElement('span'), {
-      className: 'block opacity-70',
+      className: 'block text-[10px] opacity-70',
     });
+
     popEl.textContent =
       pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data';
-    tooltip.replaceChildren(nameEl, gdpEl, popEl);
+    const medianAge = medianAgeByNumeric.get(found.id);
+    const ageEl = Object.assign(document.createElement('span'), {
+      className: 'block text-[10px] opacity-70',
+    });
+
+    ageEl.textContent =
+      medianAge != null
+        ? ageFmt(medianAge) + ' years median age'
+        : 'No median age data';
+    tooltip.replaceChildren(nameEl, gdpEl, popEl, ageEl);
     tooltip.classList.remove('hidden');
 
     const tx = Math.min(
