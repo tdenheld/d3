@@ -94,7 +94,7 @@ import '../styles/main.css';
     fetch(
       'https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=300&mrv=1',
     ).then((r) => r.json()),
-    fetch('https://restcountries.com/v3.1/all?fields=ccn3,cca3,name').then(
+    fetch('https://restcountries.com/v3.1/all?fields=ccn3,cca3,name,population').then(
       (r) => r.json(),
     ),
   ]);
@@ -125,6 +125,11 @@ import '../styles/main.css';
     rcRaw
       .filter((c) => c.ccn3 && c.ccn3 !== '000')
       .map((c) => [c.ccn3, c.name.common]),
+  );
+  const popByNumeric = new Map(
+    rcRaw
+      .filter((c) => c.ccn3 && c.ccn3 !== '000' && c.population != null)
+      .map((c) => [c.ccn3, c.population]),
   );
   const gdpByNumeric = new Map();
   for (const record of wbRaw[1] ?? []) {
@@ -281,6 +286,7 @@ import '../styles/main.css';
   let hoveredId = null;
   const tooltip = document.querySelector('[data-tooltip]');
   const gdpFmt = d3.format(',.0f');
+  const popFmt = d3.format(',.1f');
 
   canvas.addEventListener('mousemove', (event) => {
     if (isDragging) {
@@ -320,8 +326,14 @@ import '../styles/main.css';
       className: 'block opacity-70',
     });
     gdpEl.textContent =
-      gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No data';
-    tooltip.replaceChildren(nameEl, gdpEl);
+      gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data';
+    const pop = popByNumeric.get(found.id);
+    const popEl = Object.assign(document.createElement('span'), {
+      className: 'block opacity-70',
+    });
+    popEl.textContent =
+      pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data';
+    tooltip.replaceChildren(nameEl, gdpEl, popEl);
     tooltip.classList.remove('hidden');
 
     const tx = Math.min(
