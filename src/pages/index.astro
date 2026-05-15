@@ -16,6 +16,11 @@ import '../styles/main.css';
     <main class="grid place-content-center min-h-[100dvh] bg-[#101010]">
       <h1 class="sr-only">Versor Dragging</h1>
       <div data-container></div>
+      <div
+        data-tooltip
+        class="pointer-events-none fixed hidden rounded-md bg-gray-900 px-3 py-2 text-sm text-white shadow-xl ring-1 ring-white/10"
+      >
+      </div>
     </main>
   </body>
 </html>
@@ -26,69 +31,146 @@ import '../styles/main.css';
 
   // ── Inline versor math ────────────────────────────────────────────────────
   // https://github.com/Fil/versor (ISC)
-  const _r = Math.PI / 180, _d = 180 / Math.PI;
+  const _r = Math.PI / 180,
+    _d = 180 / Math.PI;
 
   function versor([l, p, g]) {
-    l = l * _r / 2; p = p * _r / 2; g = (g || 0) * _r / 2;
-    const sl = Math.sin(l), cl = Math.cos(l);
-    const sp = Math.sin(p), cp = Math.cos(p);
-    const sg = Math.sin(g), cg = Math.cos(g);
-    return [cl*cp*cg + sl*sp*sg, sl*cp*cg - cl*sp*sg, cl*sp*cg + sl*cp*sg, cl*cp*sg - sl*sp*cg];
+    l = (l * _r) / 2;
+    p = (p * _r) / 2;
+    g = ((g || 0) * _r) / 2;
+    const sl = Math.sin(l),
+      cl = Math.cos(l);
+    const sp = Math.sin(p),
+      cp = Math.cos(p);
+    const sg = Math.sin(g),
+      cg = Math.cos(g);
+    return [
+      cl * cp * cg + sl * sp * sg,
+      sl * cp * cg - cl * sp * sg,
+      cl * sp * cg + sl * cp * sg,
+      cl * cp * sg - sl * sp * cg,
+    ];
   }
   versor.cartesian = ([l, p]) => {
-    const a = l * _r, b = p * _r, cb = Math.cos(b);
+    const a = l * _r,
+      b = p * _r,
+      cb = Math.cos(b);
     return [cb * Math.cos(a), cb * Math.sin(a), Math.sin(b)];
   };
   versor.multiply = ([a1, b1, c1, d1], [a2, b2, c2, d2]) => [
-    a1*a2 - b1*b2 - c1*c2 - d1*d2,
-    a1*b2 + b1*a2 + c1*d2 - d1*c2,
-    a1*c2 - b1*d2 + c1*a2 + d1*b2,
-    a1*d2 + b1*c2 - c1*b2 + d1*a2,
+    a1 * a2 - b1 * b2 - c1 * c2 - d1 * d2,
+    a1 * b2 + b1 * a2 + c1 * d2 - d1 * c2,
+    a1 * c2 - b1 * d2 + c1 * a2 + d1 * b2,
+    a1 * d2 + b1 * c2 - c1 * b2 + d1 * a2,
   ];
   versor.rotation = ([a, b, c, d]) => [
-    Math.atan2(2*(a*b + c*d), 1 - 2*(b*b + c*c)) * _d,
-    Math.asin(Math.max(-1, Math.min(1, 2*(a*c - d*b)))) * _d,
-    Math.atan2(2*(a*d + b*c), 1 - 2*(c*c + d*d)) * _d,
+    Math.atan2(2 * (a * b + c * d), 1 - 2 * (b * b + c * c)) * _d,
+    Math.asin(Math.max(-1, Math.min(1, 2 * (a * c - d * b)))) * _d,
+    Math.atan2(2 * (a * d + b * c), 1 - 2 * (c * c + d * d)) * _d,
   ];
   versor.delta = (v0, v1) => {
-    const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
-    const dot   = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-    const w = cross(v0, v1), l = Math.sqrt(dot(w, w));
+    const cross = (a, b) => [
+      a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0],
+    ];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const w = cross(v0, v1),
+      l = Math.sqrt(dot(w, w));
     if (!l) return [1, 0, 0, 0];
-    const t = Math.acos(Math.max(-1, Math.min(1, dot(v0, v1)))) / 2, s = Math.sin(t);
-    return [Math.cos(t), w[2]/l*s, -w[1]/l*s, w[0]/l*s];
+    const t = Math.acos(Math.max(-1, Math.min(1, dot(v0, v1)))) / 2,
+      s = Math.sin(t);
+    return [Math.cos(t), (w[2] / l) * s, (-w[1] / l) * s, (w[0] / l) * s];
   };
 
   // ── Country data from world-atlas CDN ─────────────────────────────────────
-  const [world50, world110] = await Promise.all([
-    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then(r => r.json()),
-    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json()),
+  const [world50, world110, wbRaw, rcRaw] = await Promise.all([
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then(
+      (r) => r.json(),
+    ),
+    fetch(
+      'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json',
+    ).then((r) => r.json()),
+    fetch(
+      'https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=300&mrv=1',
+    ).then((r) => r.json()),
+    fetch('https://restcountries.com/v3.1/all?fields=ccn3,cca3,name').then(
+      (r) => r.json(),
+    ),
   ]);
-  const countries50  = topojson.feature(world50,  world50.objects.countries).features;
-  const countries110 = topojson.feature(world110, world110.objects.countries).features;
-  const borders50    = topojson.mesh(world50,  world50.objects.countries, (a, b) => a !== b);
-  const borders110   = topojson.mesh(world110, world110.objects.countries, (a, b) => a !== b);
+  const countries50 = topojson.feature(
+    world50,
+    world50.objects.countries,
+  ).features;
+  const countries110 = topojson.feature(
+    world110,
+    world110.objects.countries,
+  ).features;
+  const borders50 = topojson.mesh(
+    world50,
+    world50.objects.countries,
+    (a, b) => a !== b,
+  );
+  const borders110 = topojson.mesh(
+    world110,
+    world110.objects.countries,
+    (a, b) => a !== b,
+  );
 
-  const color = d3.scaleOrdinal([
-    '#7a9864', '#c4a882', '#5e8872', '#b8956a',
-    '#8aaa88', '#c9b090', '#4e7868', '#bba87a',
-    '#7a9068', '#d4b896', '#608858', '#a07858',
-  ]);
+  // alpha-3 → numeric ISO code, then build numeric → GDP lookup
+  // world-atlas IDs are zero-padded 3-digit strings ("012", "840", etc.)
+  // so keep ccn3 as-is — do NOT coerce through a number or leading zeros are lost
+  const alpha3ToNumeric = new Map(rcRaw.map((c) => [c.cca3, c.ccn3]));
+  const nameByNumeric = new Map(
+    rcRaw.filter((c) => c.ccn3 && c.ccn3 !== '000').map((c) => [c.ccn3, c.name.common]),
+  );
+  const gdpByNumeric = new Map();
+  for (const record of wbRaw[1] ?? []) {
+    const id = alpha3ToNumeric.get(record.countryiso3code);
+    if (id && id !== '000') {
+      if (record.value !== null) gdpByNumeric.set(id, record.value);
+      if (!nameByNumeric.has(id)) nameByNumeric.set(id, record.country.value);
+    }
+  }
+
+  // Palette light-mint → dark-navy (low GDP per capita → high)
+  const gdpValues = [...gdpByNumeric.values()].sort(d3.ascending);
+  const color = d3
+    .scaleQuantile()
+    .domain(gdpValues)
+    .range([
+      '#cbece6',
+      '#9fd8cf',
+      '#72c3b8',
+      '#49aea1',
+      '#28938a',
+      '#147a7a',
+      '#0d6170',
+      '#0a4a60',
+      '#083550',
+      '#062440',
+      '#041530',
+      '#020920',
+    ]);
+  const noDataColor = '#999';
 
   // ── Projection ────────────────────────────────────────────────────────────
   const padding = window.innerWidth < 600 ? 32 : 128;
   const width = Math.min(window.innerWidth, window.innerHeight) - padding * 2;
   const sphere = { type: 'Sphere' };
   const projection = d3.geoOrthographic().fitWidth(width, sphere);
-  const [[x0, y0], [x1, y1]] = d3.geoPath(projection.fitWidth(width, sphere)).bounds(sphere);
-  const dy = Math.ceil(y1 - y0), len = Math.min(Math.ceil(x1 - x0), dy);
-  projection.scale(projection.scale() * (len - 1) / len).precision(0.2);
+  const [[x0, y0], [x1, y1]] = d3
+    .geoPath(projection.fitWidth(width, sphere))
+    .bounds(sphere);
+  const dy = Math.ceil(y1 - y0),
+    len = Math.min(Math.ceil(x1 - x0), dy);
+  projection.scale((projection.scale() * (len - 1)) / len).precision(0.2);
   const height = dy;
 
   // ── Canvas (HiDPI-aware) ──────────────────────────────────────────────────
   const dpr = window.devicePixelRatio || 1;
   const canvas = Object.assign(document.createElement('canvas'), {
-    width:  width  * dpr,
+    width: width * dpr,
     height: height * dpr,
   });
   canvas.style.cssText = `width:${width}px;height:${height}px;cursor:grab;border-radius:50%;display:block`;
@@ -99,12 +181,17 @@ import '../styles/main.css';
   // ── Render ────────────────────────────────────────────────────────────────
   function render(countries, borders) {
     context.clearRect(0, 0, width, height);
-    context.beginPath(); path(sphere); context.fillStyle = '#1a3a5c'; context.fill();
+    context.beginPath();
+    path(sphere);
+    context.fillStyle = '#374D6E';
+    context.fill();
 
     for (const country of countries) {
       context.beginPath();
       path(country);
-      context.fillStyle = color(country.id);
+      context.fillStyle = gdpByNumeric.has(country.id)
+        ? color(gdpByNumeric.get(country.id))
+        : noDataColor;
       context.fill();
     }
 
@@ -114,7 +201,11 @@ import '../styles/main.css';
     context.lineWidth = 0.5;
     context.stroke();
 
-    context.beginPath(); path(sphere); context.strokeStyle = '#1a3a5c'; context.lineWidth = 1.5; context.stroke();
+    context.beginPath();
+    path(sphere);
+    context.strokeStyle = '#374D6E';
+    context.lineWidth = 1.5;
+    context.stroke();
   }
 
   // ── Drag interaction ──────────────────────────────────────────────────────
@@ -129,7 +220,8 @@ import '../styles/main.css';
         dragstarted.apply(that, [event, that]);
       }
       if (l > 1) {
-        const px = d3.mean(t, p => p[0]), py = d3.mean(t, p => p[1]);
+        const px = d3.mean(t, (p) => p[0]),
+          py = d3.mean(t, (p) => p[1]);
         return [px, py, Math.atan2(t[1][1] - t[0][1], t[1][0] - t[0][0])];
       }
       return t[0];
@@ -137,7 +229,7 @@ import '../styles/main.css';
 
     function dragstarted({ x, y }) {
       v0 = versor.cartesian(proj.invert([x, y]));
-      q0 = versor(r0 = proj.rotate());
+      q0 = versor((r0 = proj.rotate()));
     }
 
     function dragged(event) {
@@ -147,30 +239,80 @@ import '../styles/main.css';
       let q1 = versor.multiply(q0, delta);
       if (p[2]) {
         const d = (p[2] - a0) / 2;
-        const s = -Math.sin(d), c = Math.sign(Math.cos(d));
+        const s = -Math.sin(d),
+          c = Math.sign(Math.cos(d));
         q1 = versor.multiply([Math.sqrt(1 - s * s), 0, 0, s * c], q1);
       }
       proj.rotate(versor.rotation(q1));
     }
 
-    return d3.drag()
-      .on('start', function(event) {
+    return d3
+      .drag()
+      .on('start', function (event) {
         pointer(event, this);
         canvas.style.cursor = 'grabbing';
       })
       .on('drag', dragged)
-      .on('end', function() {
+      .on('end', function () {
         l = 0;
         canvas.style.cursor = 'grab';
       });
   }
 
+  // ── Tooltip ─────────────────────────────────────────────────────────────────
+  const tooltip = document.querySelector('[data-tooltip]');
+  const gdpFmt = d3.format('$,.0f');
+
+  canvas.addEventListener('mousemove', (event) => {
+    if (canvas.style.cursor === 'grabbing') {
+      tooltip.classList.add('hidden');
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * (width / rect.width);
+    const y = (event.clientY - rect.top) * (height / rect.height);
+    const coords = projection.invert([x, y]);
+    if (!coords) {
+      tooltip.classList.add('hidden');
+      return;
+    }
+    const found = countries50.find((f) => d3.geoContains(f, coords));
+    if (!found) {
+      tooltip.classList.add('hidden');
+      return;
+    }
+
+    const nameEl = Object.assign(document.createElement('span'), {
+      className: 'block font-semibold',
+    });
+    nameEl.textContent = nameByNumeric.get(found.id) ?? found.id;
+    const gdp = gdpByNumeric.get(found.id);
+    const gdpEl = Object.assign(document.createElement('span'), {
+      className: 'block text-xs opacity-70',
+    });
+    gdpEl.textContent = gdp != null ? gdpFmt(gdp) + ' per capita' : 'No data';
+    tooltip.replaceChildren(nameEl, gdpEl);
+    tooltip.classList.remove('hidden');
+
+    const tx = Math.min(
+      event.clientX + 14,
+      window.innerWidth - tooltip.offsetWidth - 8,
+    );
+    const ty = Math.max(event.clientY - tooltip.offsetHeight - 8, 8);
+    tooltip.style.left = `${tx}px`;
+    tooltip.style.top = `${ty}px`;
+  });
+
+  canvas.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+
   // ── Mount ─────────────────────────────────────────────────────────────────
   document.querySelector('[data-container]').append(canvas);
 
   d3.select(canvas)
-    .call(makeDrag(projection)
-      .on('drag.render', () => render(countries110, borders110))
-      .on('end.render',  () => render(countries50,  borders50)))
+    .call(
+      makeDrag(projection)
+        .on('drag.render', () => render(countries110, borders110))
+        .on('end.render', () => render(countries50, borders50)),
+    )
     .call(() => render(countries50, borders50));
 </script>
