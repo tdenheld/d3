@@ -13,12 +13,12 @@ import '../styles/main.css';
   </head>
 
   <body>
-    <main class="grid place-content-center min-h-[100dvh] bg-[#101010]">
+    <main class="grid place-content-center min-h-[100dvh] bg-[#090909]">
       <h1 class="sr-only">Versor Dragging</h1>
       <div data-container></div>
       <div
         data-tooltip
-        class="pointer-events-none fixed hidden rounded-md bg-gray-900 px-3 py-2 text-sm text-white shadow-xl ring-1 ring-white/10"
+        class="pointer-events-none fixed hidden rounded-md bg-gray-900 px-2 pt-1 pb-[5px] text-xs text-white shadow-xl ring-1 ring-white/10"
       >
       </div>
     </main>
@@ -122,7 +122,9 @@ import '../styles/main.css';
   // so keep ccn3 as-is — do NOT coerce through a number or leading zeros are lost
   const alpha3ToNumeric = new Map(rcRaw.map((c) => [c.cca3, c.ccn3]));
   const nameByNumeric = new Map(
-    rcRaw.filter((c) => c.ccn3 && c.ccn3 !== '000').map((c) => [c.ccn3, c.name.common]),
+    rcRaw
+      .filter((c) => c.ccn3 && c.ccn3 !== '000')
+      .map((c) => [c.ccn3, c.name.common]),
   );
   const gdpByNumeric = new Map();
   for (const record of wbRaw[1] ?? []) {
@@ -135,24 +137,26 @@ import '../styles/main.css';
 
   // Palette light-mint → dark-navy (low GDP per capita → high)
   const gdpValues = [...gdpByNumeric.values()].sort(d3.ascending);
+
+	const WATER_COLOR = '#0C1B2A';
+	
   const color = d3
     .scaleQuantile()
     .domain(gdpValues)
     .range([
-      '#cbece6',
-      '#9fd8cf',
-      '#72c3b8',
-      '#49aea1',
-      '#28938a',
-      '#147a7a',
-      '#0d6170',
-      '#0a4a60',
-      '#083550',
-      '#062440',
-      '#041530',
-      '#020920',
+      '#ABCCC6',
+      '#98D1C8',
+      '#6EBFB4',
+      '#46AB9E',
+      '#28938A',
+      '#0D6170',
+      '#05455B',
+      '#0F3C57',
+      '#163450',
+      '#192A45',
+      '#1B2439',
     ]);
-  const noDataColor = '#999';
+  const noDataColor = '#666';
 
   // ── Projection ────────────────────────────────────────────────────────────
   const padding = window.innerWidth < 600 ? 32 : 128;
@@ -183,7 +187,7 @@ import '../styles/main.css';
     context.clearRect(0, 0, width, height);
     context.beginPath();
     path(sphere);
-    context.fillStyle = '#374D6E';
+    context.fillStyle = WATER_COLOR;
     context.fill();
 
     for (const country of countries) {
@@ -195,6 +199,16 @@ import '../styles/main.css';
       context.fill();
     }
 
+    if (hoveredId) {
+      const hovered = countries.find((f) => f.id === hoveredId);
+      if (hovered) {
+        context.beginPath();
+        path(hovered);
+        context.fillStyle = 'rgba(0,0,0,0.1)';
+        context.fill();
+      }
+    }
+
     context.beginPath();
     path(borders);
     context.strokeStyle = 'rgba(0,0,0,0.2)';
@@ -203,7 +217,7 @@ import '../styles/main.css';
 
     context.beginPath();
     path(sphere);
-    context.strokeStyle = '#374D6E';
+    context.strokeStyle = WATER_COLOR;
     context.lineWidth = 1.5;
     context.stroke();
   }
@@ -264,6 +278,7 @@ import '../styles/main.css';
 
   // ── Tooltip ─────────────────────────────────────────────────────────────────
   let isDragging = false;
+  let hoveredId = null;
   const tooltip = document.querySelector('[data-tooltip]');
   const gdpFmt = d3.format(',.0f');
 
@@ -284,9 +299,17 @@ import '../styles/main.css';
     if (!found) {
       canvas.style.cursor = 'grab';
       tooltip.classList.add('hidden');
+      if (hoveredId !== null) {
+        hoveredId = null;
+        render(countries50, borders50);
+      }
       return;
     }
     canvas.style.cursor = 'default';
+    if (found.id !== hoveredId) {
+      hoveredId = found.id;
+      render(countries50, borders50);
+    }
 
     const nameEl = Object.assign(document.createElement('span'), {
       className: 'block font-semibold',
@@ -294,9 +317,10 @@ import '../styles/main.css';
     nameEl.textContent = nameByNumeric.get(found.id) ?? found.id;
     const gdp = gdpByNumeric.get(found.id);
     const gdpEl = Object.assign(document.createElement('span'), {
-      className: 'block text-xs opacity-70',
+      className: 'block opacity-70',
     });
-    gdpEl.textContent = gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No data';
+    gdpEl.textContent =
+      gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No data';
     tooltip.replaceChildren(nameEl, gdpEl);
     tooltip.classList.remove('hidden');
 
@@ -312,6 +336,10 @@ import '../styles/main.css';
   canvas.addEventListener('mouseleave', () => {
     canvas.style.cursor = 'grab';
     tooltip.classList.add('hidden');
+    if (hoveredId !== null) {
+      hoveredId = null;
+      render(countries50, borders50);
+    }
   });
 
   // ── Mount ─────────────────────────────────────────────────────────────────
