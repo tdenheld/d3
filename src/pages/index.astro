@@ -249,22 +249,26 @@ import '../styles/main.css';
     return d3
       .drag()
       .on('start', function (event) {
+        isDragging = true;
+        tooltip.classList.add('hidden');
         pointer(event, this);
         canvas.style.cursor = 'grabbing';
       })
       .on('drag', dragged)
       .on('end', function () {
+        isDragging = false;
         l = 0;
         canvas.style.cursor = 'grab';
       });
   }
 
   // ── Tooltip ─────────────────────────────────────────────────────────────────
+  let isDragging = false;
   const tooltip = document.querySelector('[data-tooltip]');
-  const gdpFmt = d3.format('$,.0f');
+  const gdpFmt = d3.format(',.0f');
 
   canvas.addEventListener('mousemove', (event) => {
-    if (canvas.style.cursor === 'grabbing') {
+    if (isDragging) {
       tooltip.classList.add('hidden');
       return;
     }
@@ -278,9 +282,11 @@ import '../styles/main.css';
     }
     const found = countries50.find((f) => d3.geoContains(f, coords));
     if (!found) {
+      canvas.style.cursor = 'grab';
       tooltip.classList.add('hidden');
       return;
     }
+    canvas.style.cursor = 'default';
 
     const nameEl = Object.assign(document.createElement('span'), {
       className: 'block font-semibold',
@@ -290,7 +296,7 @@ import '../styles/main.css';
     const gdpEl = Object.assign(document.createElement('span'), {
       className: 'block text-xs opacity-70',
     });
-    gdpEl.textContent = gdp != null ? gdpFmt(gdp) + ' per capita' : 'No data';
+    gdpEl.textContent = gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No data';
     tooltip.replaceChildren(nameEl, gdpEl);
     tooltip.classList.remove('hidden');
 
@@ -303,7 +309,10 @@ import '../styles/main.css';
     tooltip.style.top = `${ty}px`;
   });
 
-  canvas.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+  canvas.addEventListener('mouseleave', () => {
+    canvas.style.cursor = 'grab';
+    tooltip.classList.add('hidden');
+  });
 
   // ── Mount ─────────────────────────────────────────────────────────────────
   document.querySelector('[data-container]').append(canvas);
