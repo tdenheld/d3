@@ -115,6 +115,12 @@ const gdpFmt = d3.format(',.0f');
 const popFmt = d3.format(',.1f');
 const ageFmt = d3.format('.1f');
 
+const makeLine = (text, className = 'block text-[10px] opacity-70') => {
+  const el = Object.assign(document.createElement('span'), { className });
+  el.textContent = text;
+  return el;
+};
+
 canvas.addEventListener('mousemove', (event) => {
   if (isDragging) { tooltip.classList.add('hidden'); return; }
 
@@ -135,22 +141,16 @@ canvas.addEventListener('mousemove', (event) => {
   canvas.style.cursor = 'default';
   if (found.id !== hoveredId) { hoveredId = found.id; render(countries50, borders50); }
 
-  const nameEl = Object.assign(document.createElement('span'), { className: 'block font-semibold mb-1' });
-  nameEl.textContent = nameByNumeric.get(found.id) ?? found.id;
-
   const gdp = gdpByNumeric.get(found.id);
-  const gdpEl = Object.assign(document.createElement('span'), { className: 'block text-[10px] opacity-70' });
-  gdpEl.textContent = gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data';
-
   const pop = popByNumeric.get(found.id);
-  const popEl = Object.assign(document.createElement('span'), { className: 'block text-[10px] opacity-70' });
-  popEl.textContent = pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data';
-
   const medianAge = medianAgeByNumeric.get(found.id);
-  const ageEl = Object.assign(document.createElement('span'), { className: 'block text-[10px] opacity-70' });
-  ageEl.textContent = medianAge != null ? ageFmt(medianAge) + ' years median age' : 'No median age data';
 
-  tooltip.replaceChildren(nameEl, gdpEl, popEl, ageEl);
+  tooltip.replaceChildren(
+    makeLine(nameByNumeric.get(found.id) ?? found.id, 'block font-semibold mb-1'),
+    makeLine(gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data'),
+    makeLine(pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data'),
+    makeLine(medianAge != null ? ageFmt(medianAge) + ' years median age' : 'No median age data'),
+  );
   tooltip.classList.remove('hidden');
 
   const tx = Math.min(event.clientX + 14, window.innerWidth - tooltip.offsetWidth - 8);
