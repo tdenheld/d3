@@ -13,7 +13,7 @@ import '../styles/main.css';
   </head>
 
   <body>
-    <main class="grid place-content-center min-h-[100dvh] bg-[#090909]">
+    <main class="grid place-content-center min-h-[100dvh]">
       <h1 class="sr-only">Versor Dragging</h1>
       <div data-container></div>
       <div
@@ -258,6 +258,29 @@ import '../styles/main.css';
   const height = dy;
 
   // ── Canvas (HiDPI-aware) ──────────────────────────────────────────────────
+  // ── Graticule lines (equator + meridians every 30°) ─────────────────────────
+  const graticuleLines = {
+    type: 'FeatureCollection',
+    features: [
+      // Equator (0° latitude)
+      { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, 0]) } },
+      // Tropic of Cancer (23.436°N)
+      { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, 23.436]) } },
+      // Tropic of Capricorn (23.436°S)
+      { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, -23.436]) } },
+      // Arctic Circle (66.564°N)
+      { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, 66.564]) } },
+      // Antarctic Circle (66.564°S)
+      { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, -66.564]) } },
+
+      // Meridians every 30° (-150° to 180°)
+      ...d3.range(-165, 181, 15).map(lng => ({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: d3.range(-90, 91, 1).map(lat => [lng, lat]) },
+      })),
+    ],
+  };
+
   const dpr = window.devicePixelRatio || 1;
   const canvas = Object.assign(document.createElement('canvas'), {
     width: width * dpr,
@@ -297,6 +320,12 @@ import '../styles/main.css';
     path(borders);
     context.strokeStyle = 'rgba(0,0,0,0.7)';
     context.lineWidth = 0.5;
+    context.stroke();
+
+    context.beginPath();
+    path(graticuleLines);
+    context.strokeStyle = 'rgba(255,255,255,0.08)';
+    context.lineWidth = 0.6;
     context.stroke();
 
     context.beginPath();
