@@ -1,229 +1,40 @@
 import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
-import * as topojson from 'https://esm.sh/topojson-client@3';
+import { fetchGeoData } from './data.js';
+import { createColorScales, palette, WATER_COLOR, BORDER_COLOR, GRATICULE_COLOR, HOVER_COLOR } from './colors.js';
+import { makeDrag } from './drag.js';
 
-// ── Inline versor math ────────────────────────────────────────────────────
-// https://github.com/Fil/versor (ISC)
-const _r = Math.PI / 180,
-  _d = 180 / Math.PI;
-
-function versor([l, p, g]) {
-  l = (l * _r) / 2;
-  p = (p * _r) / 2;
-  g = ((g || 0) * _r) / 2;
-  const sl = Math.sin(l),
-    cl = Math.cos(l);
-  const sp = Math.sin(p),
-    cp = Math.cos(p);
-  const sg = Math.sin(g),
-    cg = Math.cos(g);
-  return [
-    cl * cp * cg + sl * sp * sg,
-    sl * cp * cg - cl * sp * sg,
-    cl * sp * cg + sl * cp * sg,
-    cl * cp * sg - sl * sp * cg,
-  ];
-}
-versor.cartesian = ([l, p]) => {
-  const a = l * _r,
-    b = p * _r,
-    cb = Math.cos(b);
-  return [cb * Math.cos(a), cb * Math.sin(a), Math.sin(b)];
-};
-versor.multiply = ([a1, b1, c1, d1], [a2, b2, c2, d2]) => [
-  a1 * a2 - b1 * b2 - c1 * c2 - d1 * d2,
-  a1 * b2 + b1 * a2 + c1 * d2 - d1 * c2,
-  a1 * c2 - b1 * d2 + c1 * a2 + d1 * b2,
-  a1 * d2 + b1 * c2 - c1 * b2 + d1 * a2,
-];
-versor.rotation = ([a, b, c, d]) => [
-  Math.atan2(2 * (a * b + c * d), 1 - 2 * (b * b + c * c)) * _d,
-  Math.asin(Math.max(-1, Math.min(1, 2 * (a * c - d * b)))) * _d,
-  Math.atan2(2 * (a * d + b * c), 1 - 2 * (c * c + d * d)) * _d,
-];
-versor.delta = (v0, v1) => {
-  const cross = (a, b) => [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
-  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const w = cross(v0, v1),
-    l = Math.sqrt(dot(w, w));
-  if (!l) return [1, 0, 0, 0];
-  const t = Math.acos(Math.max(-1, Math.min(1, dot(v0, v1)))) / 2,
-    s = Math.sin(t);
-  return [Math.cos(t), (w[2] / l) * s, (-w[1] / l) * s, (w[0] / l) * s];
-};
-
-// ── Country data from world-atlas CDN ─────────────────────────────────────
-const [world50, world110, wbRaw, rcRaw, medianAgeCsv] = await Promise.all([
-  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then(
-    (r) => r.json(),
-  ),
-  fetch(
-    'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json',
-  ).then((r) => r.json()),
-  fetch(
-    'https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=300&mrv=1',
-  ).then((r) => r.json()),
-  fetch(
-    'https://restcountries.com/v3.1/all?fields=ccn3,cca3,name,population',
-  ).then((r) => r.json()),
-  fetch(
-    'https://ourworldindata.org/grapher/median-age.csv?v=1&csvType=full&useColumnShortNames=true',
-  ).then((r) => r.text()),
-]);
-const countries50 = topojson.feature(
-  world50,
-  world50.objects.countries,
-).features;
-const countries110 = topojson.feature(
-  world110,
-  world110.objects.countries,
-).features;
-const borders50 = topojson.mesh(
-  world50,
-  world50.objects.countries,
-  (a, b) => a !== b,
-);
-const borders110 = topojson.mesh(
-  world110,
-  world110.objects.countries,
-  (a, b) => a !== b,
-);
-
-// alpha-3 → numeric ISO code, then build numeric → GDP lookup
-const alpha3ToNumeric = new Map(rcRaw.map((c) => [c.cca3, c.ccn3]));
-const nameByNumeric = new Map(
-  rcRaw
-    .filter((c) => c.ccn3 && c.ccn3 !== '000')
-    .map((c) => [c.ccn3, c.name.common]),
-);
-const popByNumeric = new Map(
-  rcRaw
-    .filter((c) => c.ccn3 && c.ccn3 !== '000' && c.population != null)
-    .map((c) => [c.ccn3, c.population]),
-);
-const gdpByNumeric = new Map();
-for (const record of wbRaw[1] ?? []) {
-  const id = alpha3ToNumeric.get(record.countryiso3code);
-  if (id && id !== '000') {
-    if (record.value !== null) gdpByNumeric.set(id, record.value);
-    if (!nameByNumeric.has(id)) nameByNumeric.set(id, record.country.value);
-  }
-}
-
-// Median age: most recent observation per country, keyed by numeric ISO
-const medianAgeByNumeric = new Map();
-{
-  const rows = d3.csvParse(medianAgeCsv);
-  const valueCols = rows.columns.filter(
-    (c) => c !== 'entity' && c !== 'code' && c !== 'year',
-  );
-  const latestByCode = new Map();
-  for (const row of rows) {
-    const code = row.code;
-    const year = +row.year;
-    if (!code || !Number.isFinite(year)) continue;
-    let value = NaN;
-    for (const col of valueCols) {
-      const v = +row[col];
-      if (Number.isFinite(v) && row[col] !== '') {
-        value = v;
-        break;
-      }
-    }
-    if (!Number.isFinite(value)) continue;
-    const prev = latestByCode.get(code);
-    if (!prev || year > prev.year) latestByCode.set(code, { year, value });
-  }
-  for (const [code, { value }] of latestByCode) {
-    const id = alpha3ToNumeric.get(code);
-    if (id && id !== '000') medianAgeByNumeric.set(id, value);
-  }
-}
-
-// ── Color scales ────────────────────────────────────────────────────────────
-const WATER_COLOR = '#0C1B2A';
-const noDataColor = '#666';
-
-const palette = [
-  '#ABCCC6',
-  '#98D1C8',
-  '#6EBFB4',
-  '#46AB9E',
-  '#28938A',
-  '#0D6170',
-  '#05455B',
-  '#0F3C57',
-  '#163450',
-  '#192A45',
-  '#1B2439',
-].reverse();
-
-const gdpValues = [...gdpByNumeric.values()].sort(d3.ascending);
-const gdpColor = d3.scaleQuantile().domain(gdpValues).range(palette);
-
-const popColor = d3
-  .scaleThreshold()
-  .domain([1e5, 5e5, 1e6, 5e6, 1e7, 25e6, 5e7, 1e8, 25e7, 5e8])
-  .range(palette);
-const popColorFn = (v) => popColor(v);
-
-const ageValues = [...medianAgeByNumeric.values()].sort(d3.ascending);
-const ageColor = d3.scaleQuantile().domain(ageValues).range(palette);
-
-let activeMetric = 'gdp';
-
-function getCountryColor(id) {
-  switch (activeMetric) {
-    case 'gdp': {
-      const v = gdpByNumeric.get(id);
-      return v != null ? gdpColor(v) : noDataColor;
-    }
-    case 'population': {
-      const v = popByNumeric.get(id);
-      return v != null && v > 0 ? popColorFn(v) : noDataColor;
-    }
-    case 'medianAge': {
-      const v = medianAgeByNumeric.get(id);
-      return v != null ? ageColor(v) : noDataColor;
-    }
-    default:
-      return noDataColor;
-  }
-}
+// ── Data ──────────────────────────────────────────────────────────────────
+const data = await fetchGeoData();
+const { countries50, countries110, borders50, borders110, nameByNumeric, popByNumeric, gdpByNumeric, medianAgeByNumeric } = data;
+const { gdpValues, ageValues, getCountryColor, setMetric, getMetric } = createColorScales(data);
 
 // ── Projection ────────────────────────────────────────────────────────────
 const padding = window.innerWidth < 600 ? 32 : 128;
 const width = Math.min(window.innerWidth, window.innerHeight) - padding * 2;
 const sphere = { type: 'Sphere' };
 const projection = d3.geoOrthographic().fitWidth(width, sphere);
-const [[x0, y0], [x1, y1]] = d3
-  .geoPath(projection.fitWidth(width, sphere))
-  .bounds(sphere);
-const dy = Math.ceil(y1 - y0),
-  len = Math.min(Math.ceil(x1 - x0), dy);
+const [[x0, y0], [x1, y1]] = d3.geoPath(projection.fitWidth(width, sphere)).bounds(sphere);
+const dy = Math.ceil(y1 - y0);
+const len = Math.min(Math.ceil(x1 - x0), dy);
 projection.scale((projection.scale() * (len - 1)) / len).precision(0.2);
 const height = dy;
 
-// ── Graticule lines ─────────────────────────────────────────────────────────
+// ── Graticule ─────────────────────────────────────────────────────────────
 const graticuleLines = {
   type: 'FeatureCollection',
   features: [
-    { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, 0]) } },
-    { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, 23.436]) } },
-    { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, -23.436]) } },
-    { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, 66.564]) } },
-    { type: 'Feature', geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map(lng => [lng, -66.564]) } },
-    ...d3.range(-165, 181, 15).map(lng => ({
+    ...[0, 23.436, -23.436, 66.564, -66.564].map((lat) => ({
       type: 'Feature',
-      geometry: { type: 'LineString', coordinates: d3.range(-90, 91, 1).map(lat => [lng, lat]) },
+      geometry: { type: 'LineString', coordinates: d3.range(-180, 181, 1).map((lng) => [lng, lat]) },
+    })),
+    ...d3.range(-165, 181, 15).map((lng) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: d3.range(-90, 91, 1).map((lat) => [lng, lat]) },
     })),
   ],
 };
 
-// ── Canvas (HiDPI-aware) ──────────────────────────────────────────────────
+// ── Canvas (HiDPI) ────────────────────────────────────────────────────────
 const dpr = window.devicePixelRatio || 1;
 const canvas = Object.assign(document.createElement('canvas'), {
   width: width * dpr,
@@ -235,8 +46,11 @@ context.scale(dpr, dpr);
 const path = d3.geoPath(projection, context);
 
 // ── Render ────────────────────────────────────────────────────────────────
-function render(countries, borders) {
+let hoveredId = null;
+
+const render = (countries, borders) => {
   context.clearRect(0, 0, canvas.width, canvas.height);
+
   context.beginPath();
   path(sphere);
   context.fillStyle = WATER_COLOR;
@@ -254,20 +68,20 @@ function render(countries, borders) {
     if (hovered) {
       context.beginPath();
       path(hovered);
-      context.fillStyle = 'rgba(0,0,0,0.1)';
+      context.fillStyle = HOVER_COLOR;
       context.fill();
     }
   }
 
   context.beginPath();
   path(borders);
-  context.strokeStyle = 'rgba(0,0,0,0.7)';
+  context.strokeStyle = BORDER_COLOR;
   context.lineWidth = 0.5;
   context.stroke();
 
   context.beginPath();
   path(graticuleLines);
-  context.strokeStyle = 'rgba(255,255,255,0.05)';
+  context.strokeStyle = GRATICULE_COLOR;
   context.lineWidth = 0.7;
   context.stroke();
 
@@ -276,134 +90,70 @@ function render(countries, borders) {
   context.strokeStyle = WATER_COLOR;
   context.lineWidth = 1.5;
   context.stroke();
-}
+};
 
-// ── Drag interaction ──────────────────────────────────────────────────────
-function makeDrag(proj) {
-  let v0, q0, r0, a0, l;
-
-  function pointer(event, that) {
-    const t = d3.pointers(event, that);
-    if (t.length !== l) {
-      l = t.length;
-      if (l > 1) a0 = Math.atan2(t[1][1] - t[0][1], t[1][0] - t[0][0]);
-      dragstarted.apply(that, [event, that]);
-    }
-    if (l > 1) {
-      const px = d3.mean(t, (p) => p[0]),
-        py = d3.mean(t, (p) => p[1]);
-      return [px, py, Math.atan2(t[1][1] - t[0][1], t[1][0] - t[0][0])];
-    }
-    return t[0];
-  }
-
-  function dragstarted({ x, y }) {
-    v0 = versor.cartesian(proj.invert([x, y]));
-    q0 = versor((r0 = proj.rotate()));
-  }
-
-  function dragged(event) {
-    const p = pointer(event, this);
-    const v1 = versor.cartesian(proj.rotate(r0).invert(p));
-    const delta = versor.delta(v0, v1);
-    let q1 = versor.multiply(q0, delta);
-    if (p[2]) {
-      const d = (p[2] - a0) / 2;
-      const s = -Math.sin(d),
-        c = Math.sign(Math.cos(d));
-      q1 = versor.multiply([Math.sqrt(1 - s * s), 0, 0, s * c], q1);
-    }
-    proj.rotate(versor.rotation(q1));
-  }
-
-  return d3
-    .drag()
-    .on('start', function (event) {
-      isDragging = true;
-      tooltip.classList.add('hidden');
-      pointer(event, this);
-      canvas.style.cursor = 'grabbing';
-    })
-    .on('drag', dragged)
-    .on('end', function () {
-      isDragging = false;
-      l = 0;
-      canvas.style.cursor = 'grab';
-    });
-}
-
-// ── Tooltip ─────────────────────────────────────────────────────────────────
+// ── Drag ──────────────────────────────────────────────────────────────────
 let isDragging = false;
-let hoveredId = null;
 const tooltip = document.querySelector('[data-tooltip]');
+
+const drag = makeDrag(projection, {
+  onDragStart: () => {
+    isDragging = true;
+    tooltip.classList.add('hidden');
+    canvas.style.cursor = 'grabbing';
+  },
+  onDrag: () => render(countries110, borders110),
+  onDragEnd: () => {
+    isDragging = false;
+    canvas.style.cursor = 'grab';
+    render(countries50, borders50);
+  },
+});
+
+// ── Tooltip ───────────────────────────────────────────────────────────────
 const gdpFmt = d3.format(',.0f');
 const popFmt = d3.format(',.1f');
 const ageFmt = d3.format('.1f');
 
 canvas.addEventListener('mousemove', (event) => {
-  if (isDragging) {
-    tooltip.classList.add('hidden');
-    return;
-  }
+  if (isDragging) { tooltip.classList.add('hidden'); return; }
+
   const rect = canvas.getBoundingClientRect();
   const x = (event.clientX - rect.left) * (canvas.width / dpr) / rect.width;
   const y = (event.clientY - rect.top) * (canvas.height / dpr) / rect.height;
   const coords = projection.invert([x, y]);
-  if (!coords) {
-    tooltip.classList.add('hidden');
-    return;
-  }
+  if (!coords) { tooltip.classList.add('hidden'); return; }
+
   const found = countries50.find((f) => d3.geoContains(f, coords));
   if (!found) {
     canvas.style.cursor = 'grab';
     tooltip.classList.add('hidden');
-    if (hoveredId !== null) {
-      hoveredId = null;
-      render(countries50, borders50);
-    }
+    if (hoveredId !== null) { hoveredId = null; render(countries50, borders50); }
     return;
   }
+
   canvas.style.cursor = 'default';
-  if (found.id !== hoveredId) {
-    hoveredId = found.id;
-    render(countries50, borders50);
-  }
+  if (found.id !== hoveredId) { hoveredId = found.id; render(countries50, borders50); }
 
-  const nameEl = Object.assign(document.createElement('span'), {
-    className: 'block font-semibold mb-1',
-  });
-
+  const nameEl = Object.assign(document.createElement('span'), { className: 'block font-semibold mb-1' });
   nameEl.textContent = nameByNumeric.get(found.id) ?? found.id;
+
   const gdp = gdpByNumeric.get(found.id);
-  const gdpEl = Object.assign(document.createElement('span'), {
-    className: 'block text-[10px] opacity-70',
-  });
+  const gdpEl = Object.assign(document.createElement('span'), { className: 'block text-[10px] opacity-70' });
+  gdpEl.textContent = gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data';
 
-  gdpEl.textContent =
-    gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data';
   const pop = popByNumeric.get(found.id);
-  const popEl = Object.assign(document.createElement('span'), {
-    className: 'block text-[10px] opacity-70',
-  });
+  const popEl = Object.assign(document.createElement('span'), { className: 'block text-[10px] opacity-70' });
+  popEl.textContent = pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data';
 
-  popEl.textContent =
-    pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data';
   const medianAge = medianAgeByNumeric.get(found.id);
-  const ageEl = Object.assign(document.createElement('span'), {
-    className: 'block text-[10px] opacity-70',
-  });
+  const ageEl = Object.assign(document.createElement('span'), { className: 'block text-[10px] opacity-70' });
+  ageEl.textContent = medianAge != null ? ageFmt(medianAge) + ' years median age' : 'No median age data';
 
-  ageEl.textContent =
-    medianAge != null
-      ? ageFmt(medianAge) + ' years median age'
-      : 'No median age data';
   tooltip.replaceChildren(nameEl, gdpEl, popEl, ageEl);
   tooltip.classList.remove('hidden');
 
-  const tx = Math.min(
-    event.clientX + 14,
-    window.innerWidth - tooltip.offsetWidth - 8,
-  );
+  const tx = Math.min(event.clientX + 14, window.innerWidth - tooltip.offsetWidth - 8);
   const ty = Math.max(event.clientY - tooltip.offsetHeight - 8, 8);
   tooltip.style.left = `${tx}px`;
   tooltip.style.top = `${ty}px`;
@@ -412,10 +162,7 @@ canvas.addEventListener('mousemove', (event) => {
 canvas.addEventListener('mouseleave', () => {
   canvas.style.cursor = 'grab';
   tooltip.classList.add('hidden');
-  if (hoveredId !== null) {
-    hoveredId = null;
-    render(countries50, borders50);
-  }
+  if (hoveredId !== null) { hoveredId = null; render(countries50, borders50); }
 });
 
 // ── Legend ─────────────────────────────────────────────────────────────────
@@ -425,25 +172,25 @@ const legendMax = document.querySelector('[data-legend-max]');
 const popThresholds = [1e5, 5e5, 1e6, 5e6, 1e7, 25e6, 5e7, 1e8, 25e7, 5e8];
 const compactFmt = d3.format('~s');
 
-function updateLegend() {
+const updateLegend = () => {
   legendBar.style.background = `linear-gradient(to right, ${palette.join(', ')})`;
-  if (activeMetric === 'gdp') {
+  const metric = getMetric();
+  if (metric === 'gdp') {
     legendMin.textContent = '$' + compactFmt(gdpValues[0]);
     legendMax.textContent = '$' + compactFmt(gdpValues[gdpValues.length - 1]);
-  } else if (activeMetric === 'population') {
+  } else if (metric === 'population') {
     legendMin.textContent = '0';
     legendMax.textContent = compactFmt(popThresholds[popThresholds.length - 1]) + '+';
   } else {
     legendMin.textContent = ageValues[0].toFixed(0) + ' yr';
     legendMax.textContent = ageValues[ageValues.length - 1].toFixed(0) + ' yr';
   }
-}
+};
 updateLegend();
 
-// ── Metric toggle ──────────────────────────────────────────────────────────
-const metricSelect = document.querySelector('[data-metric]');
-metricSelect.addEventListener('change', (e) => {
-  activeMetric = e.target.value;
+// ── Metric toggle ─────────────────────────────────────────────────────────
+document.querySelector('[data-metric]').addEventListener('change', (e) => {
+  setMetric(e.target.value);
   updateLegend();
   render(countries50, borders50);
 });
@@ -456,7 +203,7 @@ let currentZoom = 1;
 const minZoom = 0.5;
 const maxZoom = 4;
 
-function applyZoom(factor) {
+const applyZoom = (factor) => {
   currentZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom * factor));
   const newWidth = baseWidth * currentZoom;
   const newHeight = baseHeight * currentZoom;
@@ -474,18 +221,12 @@ function applyZoom(factor) {
   projection.translate([newWidth / 2, newHeight / 2]);
 
   render(countries50, borders50);
-}
+};
 
 document.querySelector('[data-zoom-in]').addEventListener('click', () => applyZoom(1.3));
 document.querySelector('[data-zoom-out]').addEventListener('click', () => applyZoom(1 / 1.3));
 
 // ── Mount ─────────────────────────────────────────────────────────────────
 document.querySelector('[data-container]').append(canvas);
-
-d3.select(canvas)
-  .call(
-    makeDrag(projection)
-      .on('drag.render', () => render(countries110, borders110))
-      .on('end.render', () => render(countries50, borders50)),
-  )
-  .call(() => render(countries50, borders50));
+d3.select(canvas).call(drag);
+render(countries50, borders50);
