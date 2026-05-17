@@ -127,11 +127,9 @@ const renderTerrainOverlay = (fast = false) => {
   path(sphere);
   context.clip();
   context.globalCompositeOperation = 'overlay';
-  context.globalAlpha = 0.2;
+  context.globalAlpha = 0.3;
   context.drawImage(offscreen, 0, 0);
   context.restore();
-  context.globalCompositeOperation = 'source-over';
-  context.globalAlpha = 1;
 };
 
 // ── Render ────────────────────────────────────────────────────────────────
@@ -189,8 +187,8 @@ const render = (countries, borders, fast = false) => {
   const r = projection.scale();
   const edgeGradient = context.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
   edgeGradient.addColorStop(0, 'rgba(255,255,255,0)');
-  edgeGradient.addColorStop(0.6, 'rgba(255,255,255,0)');
-  edgeGradient.addColorStop(0.93, 'rgba(180,220,255,0.1)');
+  edgeGradient.addColorStop(0.67, 'rgba(255,255,255,0)');
+  edgeGradient.addColorStop(0.93, 'rgba(180,220,255,0.08)');
   edgeGradient.addColorStop(1, 'rgba(140,200,255,0.4)');
   context.beginPath();
   path(sphere);
