@@ -34,6 +34,21 @@ const graticuleLines = {
   ],
 };
 
+// ── Terrain texture ───────────────────────────────────────────────────────
+const terrainImg = new Image();
+terrainImg.src = '/earth-topology.png';
+const terrainReady = new Promise((resolve) => { terrainImg.onload = resolve; });
+await terrainReady;
+
+const terrainCanvas = document.createElement('canvas');
+terrainCanvas.width = terrainImg.width;
+terrainCanvas.height = terrainImg.height;
+const terrainCtx = terrainCanvas.getContext('2d');
+terrainCtx.drawImage(terrainImg, 0, 0);
+const terrainData = terrainCtx.getImageData(0, 0, terrainImg.width, terrainImg.height).data;
+const texW = terrainImg.width;
+const texH = terrainImg.height;
+
 // ── Canvas (HiDPI) ────────────────────────────────────────────────────────
 const dpr = window.devicePixelRatio || 1;
 const canvas = Object.assign(document.createElement('canvas'), {
@@ -45,10 +60,71 @@ const context = canvas.getContext('2d');
 context.scale(dpr, dpr);
 const path = d3.geoPath(projection, context);
 
+// ── Terrain overlay helper ─────────────────────────────────────────────────
+const offscreen = document.createElement('canvas');
+const offCtx = offscreen.getContext('2d');
+let offImgData = null;
+
+const renderTerrainOverlay = (fast = false) => {
+  const cw = Math.round(canvas.width / dpr);
+  const ch = Math.round(canvas.height / dpr);
+  const step = fast ? 4 : 2; // coarser during drag for performance
+
+  // Reuse offscreen canvas; resize only when needed
+  if (offscreen.width !== cw || offscreen.height !== ch) {
+    offscreen.width = cw;
+    offscreen.height = ch;
+    offImgData = offCtx.createImageData(cw, ch);
+  }
+
+  const pixels = offImgData.data;
+  // Clear previous frame data
+  pixels.fill(0);
+
+  for (let y = 0; y < ch; y += step) {
+    for (let x = 0; x < cw; x += step) {
+      const coords = projection.invert([x, y]);
+      if (!coords) continue;
+      const [lon, lat] = coords;
+      // Convert lon/lat to equirectangular texture coordinates
+      const tx = ((lon + 180) / 360) * texW;
+      const ty = ((90 - lat) / 180) * texH;
+      const ix = Math.min(Math.floor(tx), texW - 1);
+      const iy = Math.min(Math.floor(ty), texH - 1);
+      const val = 255 - terrainData[(iy * texW + ix) * 4]; // inverted grayscale
+
+      // Fill the step×step block
+      for (let dy = 0; dy < step && y + dy < ch; dy++) {
+        for (let dx = 0; dx < step && x + dx < cw; dx++) {
+          const idx = ((y + dy) * cw + (x + dx)) * 4;
+          pixels[idx] = val;
+          pixels[idx + 1] = val;
+          pixels[idx + 2] = val;
+          pixels[idx + 3] = 255;
+        }
+      }
+    }
+  }
+
+  offCtx.putImageData(offImgData, 0, 0);
+
+  // Clip to sphere and composite
+  context.save();
+  context.beginPath();
+  path(sphere);
+  context.clip();
+  context.globalCompositeOperation = 'soft-light';
+  context.globalAlpha = 0.9;
+  context.drawImage(offscreen, 0, 0);
+  context.restore();
+  context.globalCompositeOperation = 'source-over';
+  context.globalAlpha = 1;
+};
+
 // ── Render ────────────────────────────────────────────────────────────────
 let hoveredId = null;
 
-const render = (countries, borders) => {
+const render = (countries, borders, fast = false) => {
   context.clearRect(0, 0, canvas.width, canvas.height);
 
   context.beginPath();
@@ -73,6 +149,9 @@ const render = (countries, borders) => {
     }
   }
 
+  // Terrain texture overlay
+  renderTerrainOverlay(fast);
+
   context.beginPath();
   path(borders);
   context.strokeStyle = BORDER_COLOR;
@@ -90,6 +169,20 @@ const render = (countries, borders) => {
   context.strokeStyle = WATER_COLOR;
   context.lineWidth = 1.5;
   context.stroke();
+
+  // Atmospheric edge glow / light gradient
+  const cx = projection.translate()[0];
+  const cy = projection.translate()[1];
+  const r = projection.scale();
+  const edgeGradient = context.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+  edgeGradient.addColorStop(0, 'rgba(255,255,255,0)');
+  edgeGradient.addColorStop(0.6, 'rgba(255,255,255,0)');
+  edgeGradient.addColorStop(0.93, 'rgba(180,220,255,0.1)');
+  edgeGradient.addColorStop(1, 'rgba(140,200,255,0.4)');
+  context.beginPath();
+  path(sphere);
+  context.fillStyle = edgeGradient;
+  context.fill();
 };
 
 // ── Drag ──────────────────────────────────────────────────────────────────
@@ -102,7 +195,7 @@ const drag = makeDrag(projection, {
     tooltip.classList.add('hidden');
     canvas.style.cursor = 'grabbing';
   },
-  onDrag: () => render(countries110, borders110),
+  onDrag: () => render(countries110, borders110, true),
   onDragEnd: () => {
     isDragging = false;
     canvas.style.cursor = 'grab';
