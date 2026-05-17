@@ -20,7 +20,7 @@ export const palette = [
   '#1B2439',
 ].reverse();
 
-export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumeric }) => {
+export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumeric, breadByNumeric }) => {
   const gdpValues = [...gdpByNumeric.values()].sort(d3.ascending);
   const gdpColor = d3.scaleQuantile().domain(gdpValues).range(palette);
 
@@ -31,6 +31,9 @@ export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumer
 
   const ageValues = [...medianAgeByNumeric.values()].sort(d3.ascending);
   const ageColor = d3.scaleQuantile().domain(ageValues).range(palette);
+
+  const breadValues = [...breadByNumeric.values()].sort(d3.ascending);
+  const breadColor = d3.scaleQuantile().domain(breadValues).range(palette);
 
   let activeMetric = 'gdp';
 
@@ -51,10 +54,14 @@ export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumer
         const v = medianAgeByNumeric.get(id);
         return v != null ? ageColor(v) : noDataColor;
       }
+      case 'bread': {
+        const v = breadByNumeric.get(id);
+        return v != null ? breadColor(v) : noDataColor;
+      }
       default:
         return noDataColor;
     }
   };
 
-  return { gdpValues, ageValues, getCountryColor, setMetric, getMetric };
+  return { gdpValues, ageValues, breadValues, getCountryColor, setMetric, getMetric };
 };

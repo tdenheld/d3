@@ -2,12 +2,13 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
 import * as topojson from 'https://esm.sh/topojson-client@3';
 
 export const fetchGeoData = async () => {
-  const [world50, world110, wbRaw, rcRaw, medianAgeCsv] = await Promise.all([
+  const [world50, world110, wbRaw, rcRaw, medianAgeCsv, breadJson] = await Promise.all([
     fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then((r) => r.json()),
     fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then((r) => r.json()),
     fetch('https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=300&mrv=1').then((r) => r.json()),
     fetch('https://restcountries.com/v3.1/all?fields=ccn3,cca3,name,population').then((r) => r.json()),
     fetch('https://ourworldindata.org/grapher/median-age.csv?v=1&csvType=full&useColumnShortNames=true').then((r) => r.text()),
+    fetch('/bread-consumption.json').then((r) => r.json()),
   ]);
 
   const countries50 = topojson.feature(world50, world50.objects.countries).features;
@@ -56,6 +57,12 @@ export const fetchGeoData = async () => {
     if (id && id !== '000') medianAgeByNumeric.set(id, value);
   }
 
+  // Bread consumption per capita (kg/year)
+  const breadByNumeric = new Map();
+  for (const [id, value] of Object.entries(breadJson.data)) {
+    breadByNumeric.set(id, value);
+  }
+
   return {
     countries50,
     countries110,
@@ -65,5 +72,6 @@ export const fetchGeoData = async () => {
     popByNumeric,
     gdpByNumeric,
     medianAgeByNumeric,
+    breadByNumeric,
   };
 };
