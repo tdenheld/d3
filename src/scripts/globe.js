@@ -113,8 +113,8 @@ const renderTerrainOverlay = (fast = false) => {
   context.beginPath();
   path(sphere);
   context.clip();
-  context.globalCompositeOperation = 'soft-light';
-  context.globalAlpha = 0.9;
+  context.globalCompositeOperation = 'overlay';
+  context.globalAlpha = 0.2;
   context.drawImage(offscreen, 0, 0);
   context.restore();
   context.globalCompositeOperation = 'source-over';
