@@ -2,7 +2,7 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
 
 export const WATER_COLOR = '#0C1B2A';
 export const BORDER_COLOR = 'rgba(0,0,0,0.7)';
-export const GRATICULE_COLOR = 'rgba(255,255,255,0.05)';
+export const GRATICULE_COLOR = 'rgba(255,255,255,0.06)';
 export const HOVER_COLOR = 'rgba(0,0,0,0.1)';
 const noDataColor = '#666';
 
@@ -20,7 +20,7 @@ export const palette = [
   '#1B2439',
 ].reverse();
 
-export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumeric, breadByNumeric }) => {
+export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumeric }) => {
   const gdpValues = [...gdpByNumeric.values()].sort(d3.ascending);
   const gdpColor = d3.scaleQuantile().domain(gdpValues).range(palette);
 
@@ -31,9 +31,6 @@ export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumer
 
   const ageValues = [...medianAgeByNumeric.values()].sort(d3.ascending);
   const ageColor = d3.scaleQuantile().domain(ageValues).range(palette);
-
-  const breadValues = [...breadByNumeric.values()].sort(d3.ascending);
-  const breadColor = d3.scaleQuantile().domain(breadValues).range(palette);
 
   let activeMetric = 'gdp';
 
@@ -54,14 +51,10 @@ export const createColorScales = ({ gdpByNumeric, popByNumeric, medianAgeByNumer
         const v = medianAgeByNumeric.get(id);
         return v != null ? ageColor(v) : noDataColor;
       }
-      case 'bread': {
-        const v = breadByNumeric.get(id);
-        return v != null ? breadColor(v) : noDataColor;
-      }
       default:
         return noDataColor;
     }
   };
 
-  return { gdpValues, ageValues, breadValues, getCountryColor, setMetric, getMetric };
+  return { gdpValues, ageValues, getCountryColor, setMetric, getMetric };
 };

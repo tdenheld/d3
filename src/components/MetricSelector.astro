@@ -1,11 +1,26 @@
 <div class="fixed top-4 left-4 flex items-center gap-2">
-  <select
-    data-metric
-    class="appearance-none rounded bg-gray-900/80 backdrop-blur-md px-3 py-1.5 text-xs text-white ring-1 ring-white/10 outline-none cursor-pointer"
-  >
-    <option value="gdp">GDP per capita</option>
-    <option value="population">Population</option>
-    <option value="medianAge">Median age</option>
-    <option value="bread">Bread consumption</option>
-  </select>
+  <div class="nes-relative">
+    <select
+      data-metric
+      class="appearance-none rounded bg-gray-900/80 backdrop-blur-md pl-2.5 pr-8 pt-1.5 pb-2 text-xs text-white ring-1 ring-white/10 outline-none cursor-pointer"
+    >
+      <option value="gdp">GDP per capita</option>
+      <option value="population">Population</option>
+      <option value="medianAge">Median age</option>
+    </select>
+
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke-width="1.5"
+      stroke="currentColor"
+      class="size-3 text-white absolute top-1/2 right-2 -translate-y-1/2 pointer-events-none"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="m19.5 8.25-7.5 7.5-7.5-7.5"></path>
+    </svg>
+  </div>
 </div>

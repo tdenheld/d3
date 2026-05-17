@@ -5,8 +5,8 @@ import { makeDrag } from './drag.js';
 
 // ── Data ──────────────────────────────────────────────────────────────────
 const data = await fetchGeoData();
-const { countries50, countries110, borders50, borders110, nameByNumeric, popByNumeric, gdpByNumeric, medianAgeByNumeric, breadByNumeric } = data;
-const { gdpValues, ageValues, breadValues, getCountryColor, setMetric, getMetric } = createColorScales(data);
+const { countries50, countries110, borders50, borders110, nameByNumeric, popByNumeric, gdpByNumeric, medianAgeByNumeric } = data;
+const { gdpValues, ageValues, getCountryColor, setMetric, getMetric } = createColorScales(data);
 
 // ── Projection ────────────────────────────────────────────────────────────
 const padding = window.innerWidth < 600 ? 32 : 128;
@@ -250,14 +250,12 @@ canvas.addEventListener('mousemove', (event) => {
   const gdp = gdpByNumeric.get(found.id);
   const pop = popByNumeric.get(found.id);
   const medianAge = medianAgeByNumeric.get(found.id);
-  const bread = breadByNumeric.get(found.id);
 
   tooltip.replaceChildren(
     makeLine(nameByNumeric.get(found.id) ?? found.id, 'block font-semibold mb-1'),
     makeLine(gdp != null ? '€ ' + gdpFmt(gdp) + ' per capita' : 'No GDP data'),
     makeLine(pop != null ? popFmt(pop / 1_000_000) + 'M people' : 'No population data'),
     makeLine(medianAge != null ? ageFmt(medianAge) + ' years median age' : 'No median age data'),
-    makeLine(bread != null ? bread + ' kg bread/person/year' : 'No bread data'),
   );
   tooltip.classList.remove('hidden');
 
@@ -277,7 +275,6 @@ canvas.addEventListener('mouseleave', () => {
 const legendBar = document.querySelector('[data-legend-bar]');
 const legendMin = document.querySelector('[data-legend-min]');
 const legendMax = document.querySelector('[data-legend-max]');
-const legendNote = document.querySelector('[data-legend-note]');
 const popThresholds = [1e5, 5e5, 1e6, 5e6, 1e7, 25e6, 5e7, 1e8, 25e7, 5e8];
 const compactFmt = d3.format('~s');
 
@@ -293,11 +290,7 @@ const updateLegend = () => {
   } else if (metric === 'medianAge') {
     legendMin.textContent = ageValues[0].toFixed(0) + ' yr';
     legendMax.textContent = ageValues[ageValues.length - 1].toFixed(0) + ' yr';
-  } else if (metric === 'bread') {
-    legendMin.textContent = breadValues[0] + ' kg';
-    legendMax.textContent = breadValues[breadValues.length - 1] + ' kg';
   }
-  legendNote.classList.toggle('hidden', metric !== 'bread');
 };
 updateLegend();
 
