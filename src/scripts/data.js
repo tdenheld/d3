@@ -2,11 +2,12 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
 import * as topojson from 'https://esm.sh/topojson-client@3';
 
 export const fetchGeoData = async () => {
-  const [world50, world110, wbRaw, rcRaw, medianAgeCsv] = await Promise.all([
+  const [world50, world110, wbRaw, rcRaw, popRaw, medianAgeCsv] = await Promise.all([
     fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then((r) => r.json()),
     fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then((r) => r.json()),
     fetch('https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=300&mrv=1').then((r) => r.json()),
-    fetch('https://restcountries.com/v3.1/all?fields=ccn3,cca3,name,population').then((r) => r.json()),
+    fetch('https://raw.githubusercontent.com/mledoze/countries/master/countries.json').then((r) => r.json()),
+    fetch('https://raw.githubusercontent.com/samayo/country-json/master/src/country-by-population.json').then((r) => r.json()),
     fetch('https://ourworldindata.org/grapher/median-age.csv?v=1&csvType=full&useColumnShortNames=true').then((r) => r.text()),
   ]);
 
@@ -17,12 +18,18 @@ export const fetchGeoData = async () => {
 
   // alpha-3 → numeric ISO code lookups
   const alpha3ToNumeric = new Map(rcRaw.map((c) => [c.cca3, c.ccn3]));
+  const nameToNumeric = new Map(rcRaw.map((c) => [c.name.common, c.ccn3]));
   const nameByNumeric = new Map(
     rcRaw.filter((c) => c.ccn3 && c.ccn3 !== '000').map((c) => [c.ccn3, c.name.common]),
   );
-  const popByNumeric = new Map(
-    rcRaw.filter((c) => c.ccn3 && c.ccn3 !== '000' && c.population != null).map((c) => [c.ccn3, c.population]),
-  );
+
+  const popByNumeric = new Map();
+  for (const c of popRaw) {
+    const numeric = nameToNumeric.get(c.country);
+    if (numeric && c.population != null) {
+      popByNumeric.set(numeric, c.population);
+    }
+  }
 
   const gdpByNumeric = new Map();
   for (const record of wbRaw[1] ?? []) {
